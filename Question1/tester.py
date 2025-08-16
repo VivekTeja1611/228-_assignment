@@ -7,29 +7,34 @@ from typing import List
 from tqdm import tqdm
 import random
 
-
-def is_valid_sudoku(original:List[List[int]], grid: List[List[int]]) -> bool:
-    
-    n = len(grid)
-    sqrt_n = int(math.sqrt(n))
-    if sqrt_n * sqrt_n != n:
-        raise ValueError("Grid size is not square with square subgrids.")
-
-    def check_unique(values):
-        nums = [v for v in values if v != 0]
-        return len(set(nums)) == len(nums)
+def is_valid_sudoku(original: List[List[int]], grid: List[List[int]]) -> bool:
+    n = len(original)
+    sqrtn = int(n**0.5)
 
     for i in range(n):
-        if not check_unique(grid[i]) or not check_unique([grid[j][i] for j in range(n)]):
+        for j in range(n):
+            if original[i][j] != 0 and original[i][j] != grid[i][j]:
+                return False
+
+
+    for i in range(n):
+        if set(grid[i]) != set(range(1, n+1)):  
+            return False
+        col = [grid[r][i] for r in range(n)]
+        if set(col) != set(range(1, n+1)): 
             return False
 
-    for br in range(0, n, sqrt_n):
-        for bc in range(0, n, sqrt_n):
-            block = [grid[r][c] for r in range(br, br + sqrt_n) for c in range(bc, bc + sqrt_n)]
-            if not check_unique(block):
-                return False
-    return True
 
+    for box_row in range(0, n, sqrtn):
+        for box_col in range(0, n, sqrtn):
+            block = []
+            for i in range(sqrtn):
+                for j in range(sqrtn):
+                    block.append(grid[box_row+i][box_col+j])
+            if set(block) != set(range(1, n+1)):
+                return False
+
+    return True
 
 puzzles = []
 
@@ -59,7 +64,6 @@ for i, puzzle in enumerate(tqdm(puzzles, desc="Solving puzzles")):
     if is_valid_sudoku(puzzle, solved):
         passed += 1
     else:
-        print(f"❌ Test case {i + 1} failed!")
+        print(f"Test case {i + 1} failed!")
 
-print(f"\n✅ {passed}/{len(puzzles)} test cases passed.")
-
+print(f"\nâœ… {passed}/{len(puzzles)} test cases passed.")
