@@ -20,7 +20,6 @@ from pysat.solvers import Solver
 # Directions for movement
 DIRS = {'U': (-1, 0), 'D': (1, 0), 'L': (0, -1), 'R': (0, 1)}
 
-
 class SokobanEncoder:
     def __init__(self, grid, T):
         """
@@ -42,39 +41,54 @@ class SokobanEncoder:
         # TODO: Parse grid to fill self.goals, self.boxes, self.player_start
         self._parse_grid()
 
+        self.var_map = {}
+        self.var_count = 0
         self.num_boxes = len(self.boxes)
         self.cnf = CNF()
 
     def _parse_grid(self):
         """Parse grid to find player, boxes, and goals."""
         # TODO: Implement parsing logic
-        for i in range(len(self.grid)):
-            for j in range(len(self.grid[0])):
-                if self.grid[i][j]=='P':
-                     self.player_start=(i,j)
-                if self.grid[i][j]=='B':
-                     self.boxes.append((i,j))
-                if self.grid[i][j]=='G':
-                     self.goals.append((i,j))           
-        
+        for r in range(self.N):
+            for c in range(self.M):
+                if self.grid[r][c] == 'P':
+                    self.player_start = (r, c)
+                elif self.grid[r][c] == 'B':
+                    self.boxes.append((r, c))
+                elif self.grid[r][c] == 'G':
+                    self.goals.append((r, c))
+                    
+    
+    def _var(self, kind, *args):
+        """Creates or retrieves a unique integer variable for a given propositional atom."""
+        key = (kind,) + args
+        if key not in self.var_map:
+            self.var_count += 1
+            self.var_map[key] = self.var_count
+        return self.var_map[key]
+    
+    def _is_free(self, r, c):
+        """Checks if a cell is within bounds and not a wall."""
+        return 0 <= r < self.N and 0 <= c < self.M and self.grid[r][c] != '#'
     # ---------------- Variable Encoding ----------------
-    def var_player(self, x, y, t):
+    def var_player(self, r, c, t):
         """
-        Variable ID for player at (x, y) at time t.
-        """
-        # TODO: Implement encoding scheme
-        return (0 << 20) | (x << 8) | (y << 4) | t+1
-
-
-    def var_box(self, b, x, y, t):
-        """
-        Variable ID for box b at (x, y) at time t.
+         Variable ID for player P at (x, y) at time t.
         """
         # TODO: Implement encoding scheme
-        
-        return (1 << 20) | (b << 12) | (x << 8) | (y << 4) | t+1
+        if not self._is_free(r, c):
+            return None
+        return self._var('P', r, c, t)
 
-    # ---------------- Encoding Logic ----------------
+    def var_box(self, b, r, c, t):
+        """
+         Variable ID for box b at (x, y) at time t.
+        """
+        # TODO: Implement encoding scheme
+        if not self._is_free(r, c):
+            return None
+        return self._var('B', b, r, c, t)
+
     def encode(self):
         """
         Build CNF constraints for Sokoban:
@@ -83,201 +97,136 @@ class SokobanEncoder:
         - Non-overlapping boxes
         - Goal condition at final timestep
         """
+        
         # TODO: Add constraints for:
-        # 1. Initial conditions  
-        self.cnf.append([self.var_player(self.player_start[0],self.player_start[1],0)])
-        no_of_boxes=len(self.boxes)
-        for i in range(no_of_boxes):
-            self.cnf.append([self.var_box(i,self.boxes[i][0],self.boxes[i][1],0)])
-        no_of_goals=len(self.goals)
+        # 1. Initial conditions
+        for r in range(self.N):
+            for c in range(self.M):
+                v = self.var_player(r, c, 0)
+                if v:
+                    self.cnf.append([v] if (r, c) == self.player_start else [-v])
+        
+        for b in range(self.num_boxes):
+            for r in range(self.N):
+                for c in range(self.M):
+                    v = self.var_box(b, r, c, 0)
+                    if v:
+                        self.cnf.append([v] if (r, c) == self.boxes[b] else [-v])
 
-        # 2. Player movement
-        for i in range(0,self.N):
-            for j in range(0,self.M):
-                for t in range(0,self.T):
-                    l=[]
-                    if i==0 and j!=0 and j!=self.M-1:
-                      p1=self.var_player(i+1,j,t+1)
-                      l.append(p1)
-                      p2=self.var_player(i,j+1,t+1)
-                      l.append(p2)
-                      p3=self.var_player(i,j-1,t+1)
-                      l.append(p3)
-                      l.append(-self.var_player(i, j, t))
-                    elif i==0 and j==0:
-                       p1=self.var_player(i+1,j,t+1)
-                       p2=self.var_player(i,j+1,t+1)
-                       l.append(p1)
-                       l.append(p2)
-                       l.append(-self.var_player(i, j, t))
-                    elif i==0 and j==self.M-1:
-                       p2=self.var_player(i+1,j,t+1)
-                       p3=self.var_player(i,j-1,t+1)
-                       l.append(p2)
-                       l.append(p3)
-                       l.append(-self.var_player(i, j, t))
-                    elif i!=0 and j==0:
-                       p1=self.var_player(i+1,j,t+1)
-                       p2=self.var_player(i-1,j,t+1)
-                       p3=self.var_player(i,j+1,t+1)
-                       l.append(p1)
-                       l.append(p2)
-                       l.append(p3)
-                       l.append(-self.var_player(i, j, t))
-                    elif i!=0 and j!=0:
-                       p1=self.var_player(i+1,j,t+1)
-                       p2=self.var_player(i,j+1,t+1)
-                       p3=self.var_player(i,j-1,t+1)
-                       p4=self.var_player(i-1,j,t+1)     
-                       l.append(p1)
-                       l.append(p2)
-                       l.append(p3)
-                       l.append(p4)  
-                       l.append(-self.var_player(i, j, t))
-                    self.cnf.append(l)   
+        # 2. player movement and box movement (push rules)
+        for t in range(self.T):
+            # Player must move to an adjacent cell.
+            for r, c in [(r, c) for r in range(self.N) for c in range(self.M) if self._is_free(r,c)]:
+                p_t = self.var_player(r, c, t)
+                possible_moves = [self.var_player(r + dr, c + dc, t + 1) for dr, dc in DIRS.values() if self._is_free(r + dr, c + dc)]
+                self.cnf.append([-p_t] + possible_moves)
 
-        # 3. Box movement (push rules)
-        for b in range(no_of_boxes):
-          for i in range(self.N):
-              for j in range(self.M):
-                  for t in range(self.T):
-                      box_next = self.var_box(b, i, j, t+1)
-                      box_curr = self.var_box(b, i, j, t)
-                      
-                      # Box stays in same position (no push)
-                      no_push_clause = [-box_next, box_curr]
-                      
-                      # Add conditions that no push happened from any direction
-                      # Push from left (player at (i,j-2) pushes box at (i,j-1) to (i,j))
-                      if j > 0:
-                          no_push_clause.append(-self.var_player(i, j-2, t))
-                          no_push_clause.append(-self.var_box(b, i, j-1, t))
-                      
-                      # Push from right (player at (i,j+2) pushes box at (i,j+1) to (i,j))
-                      if j < self.M-1:
-                          no_push_clause.append(-self.var_player(i, j+2, t))
-                          no_push_clause.append(-self.var_box(b, i, j+1, t))
-                      
-                      # Push from top (player at (i-2,j) pushes box at (i-1,j) to (i,j))
-                      if i > 0:
-                          no_push_clause.append(-self.var_player(i-2, j, t))
-                          no_push_clause.append(-self.var_box(b, i-1, j, t))
-                      
-                      # Push from bottom (player at (i+2,j) pushes box at (i+1,j) to (i,j))
-                      if i < self.N-1:
-                          no_push_clause.append(-self.var_player(i+2, j, t))
-                          no_push_clause.append(-self.var_box(b, i+1, j, t))
-                      
-                      self.cnf.append(no_push_clause)
-                      
-                      # Case 2: Box pushed from LEFT (player at (i,j-2) pushes box at (i,j-1) to (i,j))
-                      if j > 0 and j < self.M-1:  # Can push from left and target is valid
-                          push_left_clause = [
-                              -box_next,
-                              self.var_player(i, j-2, t),    # Player behind box
-                              self.var_box(b, i, j-1, t),    # Box was to left
-                              -self.var_box(b, i, j, t)      # Box wasn't already here
-                          ]
-                          # Ensure target position is not blocked by other boxes
-                          for other_b in range(no_of_boxes):
-                              if other_b != b:
-                                  push_left_clause.append(-self.var_box(other_b, i, j, t))
-                          self.cnf.append(push_left_clause)
-                      
-                      # Case 3: Box pushed from RIGHT (player at (i,j+2) pushes box at (i,j+1) to (i,j))
-                      if j < self.M-1 and j > 0:  # Can push from right and target is valid
-                          push_right_clause = [
-                              -box_next,
-                              self.var_player(i, j+2, t),    # Player behind box
-                              self.var_box(b, i, j+1, t),    # Box was to right
-                              -self.var_box(b, i, j, t)      # Box wasn't already here
-                          ]
-                          for other_b in range(no_of_boxes):
-                              if other_b != b:
-                                  push_right_clause.append(-self.var_box(other_b, i, j, t))
-                          self.cnf.append(push_right_clause)
-                      
-                      # Case 4: Box pushed from TOP (player at (i-2,j) pushes box at (i-1,j) to (i,j))
-                      if i > 0 and i < self.N-1:  # Can push from top and target is valid
-                          push_top_clause = [
-                              -box_next,
-                              self.var_player(i-2, j, t),    # Player behind box
-                              self.var_box(b, i-1, j, t),    # Box was above
-                              -self.var_box(b, i, j, t)      # Box wasn't already here
-                          ]
-                          for other_b in range(no_of_boxes):
-                              if other_b != b:
-                                  push_top_clause.append(-self.var_box(other_b, i, j, t))
-                          self.cnf.append(push_top_clause)
-                      
-                      # Case 5: Box pushed from BOTTOM (player at (i+2,j) pushes box at (i+1,j) to (i,j))
-                      if i < self.N-1 and i > 0:  # Can push from bottom and target is valid
-                          push_bottom_clause = [
-                              -box_next,
-                              self.var_player(i+2, j, t),    # Player behind box
-                              self.var_box(b, i+1, j, t),    # Box was below
-                              -self.var_box(b, i, j, t)      # Box wasn't already here
-                          ]
-                          for other_b in range(no_of_boxes):
-                              if other_b != b:
-                                  push_bottom_clause.append(-self.var_box(other_b, i, j, t))
-                          self.cnf.append(push_bottom_clause)
-                          
-        # 4. Non-overlap constraints
-        for i in range(0,self.N):
-            for j in range(0,self.M):
-                for t in range(0,self.T):
-                    p=self.var_player(i,j,t)
-                    for b in range(no_of_boxes):
-                        b=self.var_box(b,i,j,t)
-                        self.cnf.append([-p,-b])
-                    for a in range(no_of_boxes):
-                        for b in range(a+1,no_of_boxes):
-                            a=self.var_box(a,i,j,t)
-                            b=self.var_box(b,i,j,t)
-                            self.cnf.append([-a,-b])   
-        # 5. Goal conditions
-        for (g, h) in self.goals:
-            l = []
-            for b in range(no_of_boxes):
-                l.append(self.var_box(b,g,h, self.T - 1))
-            self.cnf.append(l)   
+            # A move is only possible if there are no walls and inside the grid.
+            for r, c in [(r, c) for r in range(self.N) for c in range(self.M) if self._is_free(r,c)]:
+                p_t = self.var_player(r, c, t)
+                for dr, dc in DIRS.values():
+                    nr, nc = r + dr, c + dc #player position after push
+                    if not self._is_free(nr, nc): continue
+                    p_t1 = self.var_player(nr, nc, t + 1)
+                    
+                    # box postion after a push
+                    br, bc = nr + dr, nc + dc
+                    
+                    # A move is blocked if it's a push, but the destination is a wall or another box.
+                    is_blocked_by_wall = not self._is_free(br, bc)
+                    for b1_idx in range(self.num_boxes):
+                        b_in_way = self.var_box(b1_idx, nr, nc, t)
+                        if is_blocked_by_wall:
+                            # P(r,c,t) ^ B(b1,nr,nc,t) => ~P(nr,nc,t+1)  (blocked by wall)
+                            self.cnf.append([-p_t, -b_in_way, -p_t1])
+                        else:
+                            for b2_idx in range(self.num_boxes):
+                                b_at_dest = self.var_box(b2_idx, br, bc, t)
+                                # P(r,c,t) ^ B(b1,nr,nc,t) ^ B(b2,br,bc,t) => ~P(nr,nc,t+1) (blocked by another box)
+                                self.cnf.append([-p_t, -b_in_way, -b_at_dest, -p_t1])
 
-        # 6. Other conditions
-        for t in range(0,self.T):
-            l=[]
-            for i in range(0,self.N):
-                for j in range(0,self.M):
-                   l.append(self.var_player(i,j,t))
-            self.cnf.append(l)
+            # Action Consequences: Player's move causes boxes to move.
+            for r, c in [(r, c) for r in range(self.N) for c in range(self.M) if self._is_free(r,c)]:
+                p_t = self.var_player(r, c, t)
+                for dr, dc in DIRS.values():
+                    nr, nc = r + dr, c + dc
+                    if not self._is_free(nr, nc): continue
+                    p_t1 = self.var_player(nr, nc, t + 1)
+                    
+                    br, bc = nr + dr, nc + dc
+                    if not self._is_free(br, bc): continue
+                    
+                    for b_idx in range(self.num_boxes):
+                        b_t = self.var_box(b_idx, nr, nc, t)
+                        b_t1_new = self.var_box(b_idx, br, bc, t + 1)
+                        # P(r,c,t) ^ P(nr,nc,t+1) ^ B(b,nr,nc,t) => B(b,br,bc,t+1)
+                        self.cnf.append([-p_t, -p_t1, -b_t, b_t1_new])
 
-        for t in range(0,self.T):
-            for i1 in range(0,self.N):
-                for i2 in range(0,self.N):
-                    for j1 in range(0,self.M):
-                        for j2  in range(0,self.M):
-                            if not (i1==i2 and j1==j2):
-                               self.cnf.append([-self.var_player(i1,j1,t),-self.var_player(i2,j2,t)])
-        for t in range(0, self.T):
-           for b in range(no_of_boxes):   # loop over boxes
-               l = []
-               for i in range(0, self.N):
-                   for j in range(0, self.M):
-                       l.append(self.var_box(b, i, j, t))
-               self.cnf.append(l)
+            # A box stays put unless pushed.
+            for b_idx in range(self.num_boxes):
+                for r, c in [(r, c) for r in range(self.N) for c in range(self.M) if self._is_free(r,c)]:
+                    b_t = self.var_box(b_idx, r, c, t)
+                    b_t1 = self.var_box(b_idx, r, c, t + 1)
+                    
+                    # A box at (r,c) is pushed if player comes from behind and moves onto it.
+                    push_conditions = []
+                    for dr, dc in DIRS.values():
+                        pr, pc = r - dr, c - dc
+                        if self._is_free(pr, pc):
+                            p_behind = self.var_player(pr, pc, t)
+                            p_on = self.var_player(r, c, t + 1)
+                            # aux variable for (p_behind AND p_on)
+                            aux = self._var('push', b_idx, r, c, t, pr, pc)
+                            self.cnf.append([-aux, p_behind])
+                            self.cnf.append([-aux, p_on])
+                            self.cnf.append([aux, -p_behind, -p_on])
+                            push_conditions.append(aux)
 
-        for t in range(0, self.T):
-          for b in range(no_of_boxes):
-              for i1 in range(0, self.N):
-                  for j1 in range(0, self.M):
-                      for i2 in range(0, self.N):
-                          for j2 in range(0, self.M):
-                              if not (i1 == i2 and j1 == j2):
-                                  self.cnf.append([
-                                      -self.var_box(b, i1, j1, t),
-                                      -self.var_box(b, i2, j2, t)
-                                  ])    
-                                                 
+                    # B(t) AND NOT(was_pushed) => B(t+1)
+                    # ~B(t) OR was_pushed OR B(t+1)
+                    self.cnf.append([-b_t, b_t1] + push_conditions)
+        # 3. Non-overlap constraints
+        for t in range(self.T + 1):
+            # Player is in exactly one position.
+            player_vars = [self.var_player(r, c, t) for r in range(self.N) for c in range(self.M) if self._is_free(r, c)]
+            self.cnf.append(player_vars) # At least one
+            for i in range(len(player_vars)):
+                for j in range(i + 1, len(player_vars)):
+                    self.cnf.append([-player_vars[i], -player_vars[j]]) # At most one
+
+            # Each box is in exactly one position.
+            for b_idx in range(self.num_boxes):
+                box_vars = [self.var_box(b_idx, r, c, t) for r in range(self.N) for c in range(self.M) if self._is_free(r,c)]
+                self.cnf.append(box_vars) # At least one
+                for i in range(len(box_vars)):
+                    for j in range(i + 1, len(box_vars)):
+                        self.cnf.append([-box_vars[i], -box_vars[j]]) # At most one
+            
+            # No two objects can be in the same cell.
+            for r in range(self.N):
+                for c in range(self.M):
+                    if not self._is_free(r,c): continue
+                    
+                    # Player and any box cannot overlap.
+                    p_var = self.var_player(r, c, t)
+                    for b_idx in range(self.num_boxes):
+                        b_var = self.var_box(b_idx, r, c, t)
+                        self.cnf.append([-p_var, -b_var])
+                    
+                    # No two boxes can overlap.
+                    for b1 in range(self.num_boxes):
+                        for b2 in range(b1 + 1, self.num_boxes):
+                            b1_var = self.var_box(b1, r, c, t)
+                            b2_var = self.var_box(b2, r, c, t)
+                            self.cnf.append([-b1_var, -b2_var])            
+
+        # 4. Goal State Constraint
+        # At time T, every box must be on a goal cell.
+        for b_idx in range(self.num_boxes):
+            goal_vars = [self.var_box(b_idx, gr, gc, self.T) for gr, gc in self.goals if self._is_free(gr, gc)]
+            self.cnf.append(goal_vars)
+            
+        return self.cnf
 
 def decode(model, encoder):
     """
@@ -291,31 +240,41 @@ def decode(model, encoder):
         list[str]: Sequence of moves.
     """
     N, M, T = encoder.N, encoder.M, encoder.T
+
     # TODO: Map player positions at each timestep to movement directions
-    l=set(v for v in model if v >0)
-    pos={}
-    for t in range(T+1):
-      for i in range(N):
-          for j in range(M):
-              var = encoder.var_player(i, j, t)
-              if var in l:
-                  pos[t] = (i, j)
-   
-    moves=[]
-    for t in range(1, T+1):
-        if t not in pos or (t-1) not in pos:
-            continue
-        i1, j1 = pos[t-1]
-        i2, j2 = pos[t]
-        if i2 == i1-1 and j2 == j1:  # up
-            moves.append("U")
-        elif i2 == i1+1 and j2 == j1:  # down
-            moves.append("D")
-        elif i2 == i1 and j2 == j1-1:  # left
-            moves.append("L")
-        elif i2 == i1 and j2 == j1+1:  # right
-            moves.append("R")
-    return moves
+    if not model:
+        return -1
+
+    rev_map = {v: k for k, v in encoder.var_map.items()}
+    player_pos = [None] * (encoder.T + 1)
+
+    for var in model:
+        if var > 0 and var in rev_map:
+            kind, *args = rev_map[var]
+            if kind == 'P':
+                r, c, t = args
+                player_pos[t] = (r, c)
+
+    moves = []
+    for t in range(encoder.T):
+        if player_pos[t] is None or player_pos[t+1] is None:
+            # Should not happen if the model is valid
+            return -1 
+        r1, c1 = player_pos[t]
+        r2, c2 = player_pos[t+1]
+        dr, dc = r2 - r1, c2 - c1
+        
+        move_found = False
+        for move_char, (mr, mc) in DIRS.items():
+            if (dr, dc) == (mr, mc):
+                moves.append(move_char)
+                move_found = True
+                break
+        if not move_found:
+            # Player did not move to an adjacent square, invalid model
+             return -1
+    
+    return "".join(moves)
 
 def solve_sokoban(grid, T):
     """
@@ -334,14 +293,12 @@ def solve_sokoban(grid, T):
     cnf = encoder.encode()
 
     with Solver(name='g3') as solver:
-        solver.append_formula(encoder.cnf)
+        solver.append_formula(cnf)
         if not solver.solve():
-            return []
+            return -1
 
         model = solver.get_model()
         if not model:
-            return []
+            return -1
 
         return decode(model, encoder)
-
-

@@ -4,7 +4,7 @@ import sys
 import glob
 import os
 from collections import deque
-from q2 import solve_sokoban  # student functions
+from q import solve_sokoban  # student functions
 
 
 UNSAT = -1
